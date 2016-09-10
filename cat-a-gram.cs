@@ -1,8 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Globalization;
@@ -13,109 +9,137 @@ namespace Cat_A_Gram
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("Cat-A-Gram [Version 1.0]");
-            Console.WriteLine("Instagram image snatcher.\n");
+            Console.WriteLine("Cat-A-Gram [Version 2.1.1]");
+            Console.WriteLine("Instagram media snatcher.\n");
 
             if (args.Length == 0)
             {
-                //The program started without command-line arguments, probably directly from the exe.
-                DisplayHelp(true);
+                // The progam is launched by exe or without parameters.
+                Console.WriteLine("  USER ERROR: No program parameter given. Type CAT-A-GRAM /H to see available parameters.");
+                Console.Write("  Press any key to continue . . .");
+                Console.ReadLine();
             }
             else
             {
-                if (args[0] == "help")
+                // There is at least one parameter.
+                switch (args[0])
                 {
-                    DisplayHelp();
-                }
-                else
-                {
-                    //We expect the image address, not "help" or something
-                    string imageAddress = args[0];
-                    string completePageURL = "https://www.instagram.com/p/" + imageAddress + "/";
+                    case "/H":
+                        // Display the help screen.
+                        DisplayHelp();
+                        break;
+                    default:
+                        // The "real" program.
+                        string mediaNumber = args[0];
+                        string mediaExtension;
+                        string mediaUrl = "https://www.instagram.com/p/" + mediaNumber + "/";
 
-                    //Downloading the page's source code
-                    Console.WriteLine("  Retrieving URL: " + completePageURL + "\n");
-                    WebClient webClient = new WebClient();
+                        Console.WriteLine("  Retrieving source code of " + mediaUrl + "\n");
+                        WebClient webClient = new WebClient();
 
-                    try
-                    {
-                        //Point-Of-Connection to the internet here
-                        string htmlCode = webClient.DownloadString(completePageURL); //This can crash -- 404 WebException if it can't find a page.
-
-                        //Getting image path and cleaning it up... There is a better way sure, but fuck it, it works.
-                        string imageHtmlCode = htmlCode.Substring(htmlCode.IndexOf("\"display_src\""), htmlCode.IndexOf("location") - htmlCode.IndexOf("display_src"));
-                        string cleanImageURL = imageHtmlCode.Substring(imageHtmlCode.IndexOf("http"), imageHtmlCode.IndexOf("?") - imageHtmlCode.IndexOf("http"));
-                        Console.WriteLine("  Image URL: " + cleanImageURL);
-
-                        //Same thing, getting the image's caption
-                        string captionHtmlCode = htmlCode.Substring(htmlCode.IndexOf("\"caption\""), htmlCode.IndexOf("\"likes\"") - htmlCode.IndexOf("\"caption\""));
-                        string cleanCaptionText = captionHtmlCode.Substring(captionHtmlCode.IndexOf(":") + 3).Substring(0, captionHtmlCode.Substring(captionHtmlCode.IndexOf(":") + 3).Length - 3);
-                        Console.WriteLine("  Image caption: " + cleanCaptionText);
-
-                        string imageFilePath;
-
-                        if (args.Length == 2)
+                        try
                         {
-                            switch (args[1])
+                            // Try downloading the source code of the page.
+                            string htmlSourceCode = webClient.DownloadString(mediaUrl);
+
+                            // Setting up some locations in the full source code.
+                            int displaySourceLocation = htmlSourceCode.IndexOf("\"display_src\"");
+                            int videoUrlLocation = htmlSourceCode.IndexOf("\"video_url\"");
+                            int captionLocation = htmlSourceCode.IndexOf("\"caption\"");
+                            int captionEndMarker;
+
+                            string mediaUrl_Rought;
+                            string mediaUrl_Direct;
+                            
+                            if (htmlSourceCode.Contains("mp4"))
                             {
-                                case "a":
-                                case "address":
-                                    imageFilePath = imageAddress + ".jpg";
-                                    //Point-Of-Connection to the internet here
-                                    webClient.DownloadFile(cleanImageURL, imageFilePath); //These shouldn't throw 404s because there must be an image.
-                                    Console.WriteLine("  File downloaded to " + imageFilePath);
-                                    break;
-                                case "c":
-                                case "caption":
-                                    imageFilePath = cleanCaptionText + ".jpg";
-                                    //Point-Of-Connection to the internet here
-                                    webClient.DownloadFile(cleanImageURL, DecodeEncodedNonAsciiCharacters(imageFilePath)); //These shouldn't throw 404s because there must be an image.
-                                    Console.WriteLine("  File downloaded to " + imageFilePath);
-                                    break;
-                                default:
-                                    Console.WriteLine("\nUSER ERROR: " + args[1] + " is not recognized as a valid [name] argument. Type \"cat-a-gram help\" for a list of arguments.");
-                                    break;
+                                mediaUrl_Rought = htmlSourceCode.Substring(videoUrlLocation, htmlSourceCode.IndexOf("\"usertags\"") - videoUrlLocation);
+                                mediaUrl_Direct = mediaUrl_Rought.Substring(mediaUrl_Rought.IndexOf("http"), mediaUrl_Rought.IndexOf(".mp4") + 4 - mediaUrl_Rought.IndexOf("http"));
+                                captionEndMarker = htmlSourceCode.IndexOf("\",\"");
+                                mediaExtension = ".mp4";
+                            }
+                            else
+                            {
+                                mediaUrl_Rought = htmlSourceCode.Substring(displaySourceLocation, htmlSourceCode.IndexOf("\"location\"") - displaySourceLocation);
+                                mediaUrl_Direct = mediaUrl_Rought.Substring(mediaUrl_Rought.IndexOf("http"), mediaUrl_Rought.IndexOf("?") - mediaUrl_Rought.IndexOf("http"));
+                                captionEndMarker = htmlSourceCode.IndexOf("\",\"");
+                                mediaExtension = ".jpg";
+                            }
+
+                            // WARNING: ugly code commences!
+                            string CaptionText_Rough = htmlSourceCode.Substring(captionLocation);
+                            string CaptionText_Clean = CaptionText_Rough.Substring(CaptionText_Rough.IndexOf("\": \"") + 4).Substring(0, CaptionText_Rough.Substring(CaptionText_Rough.IndexOf("\": \"") + 4).IndexOf("\", \""));
+                            string CaptionText_Emoji = DecodeNonAscii(CaptionText_Clean);
+
+                            string fileName;
+                            if (args.Length >= 2)
+                            {
+                                // The user specified some kind of name.
+                                switch (args[1].ToLower())
+                                {
+                                    case "/a":
+                                    case "/address":
+                                    case "/code":
+                                        fileName = mediaNumber + mediaExtension;
+                                        break;
+                                    case "/c":
+                                    case "/caption":
+                                        fileName = CaptionText_Emoji + mediaExtension;
+                                        break;
+                                    default:
+                                        fileName = args[1].ToLower() + mediaExtension;
+                                        break;
+                                }
+                            }
+                            else
+                            {
+                                // The user did not specify a name, revert to mediaNumber.
+                                fileName = mediaNumber + mediaExtension;
+                            }
+
+                            if (fileName.IndexOfAny(new char[] { '<', '>', ':', '"', '/', '\\', '|', '?', '*' }) != -1)
+                            {
+                                // The user wanted to input illegal character in filename.
+                                Console.WriteLine("  MEDIA ERROR: The file name contains illegal characters (<, >, :, \", /, \\, |, ?, *)");
+                            }
+                            else
+                            {
+                                Console.WriteLine("  Downloading " + mediaUrl_Direct + "\n");
+                                webClient.DownloadFile(mediaUrl_Direct, fileName);
+                                Console.WriteLine("  File downloaded to " + fileName);
                             }
                         }
-                        else
+                        catch (WebException)
                         {
-                            imageFilePath = imageAddress + ".jpg";
-                            //Point-Of-Connection to the internet here
-                            webClient.DownloadFile(cleanImageURL, imageFilePath); //These shouldn't throw 404s because there must be an image.
-                            Console.WriteLine("  File downloaded to " + imageFilePath);
+                            // Probably a 404 error from webClient.
+                            Console.WriteLine("  NETWORK ERROR: No Instagram media found. Check if this URL points to a valid Instagram media page: " + mediaUrl);
                         }
-                    }
-                    catch (WebException)
-                    {
-                        //Possibly 404 caught
-                        Console.WriteLine("NETWORK ERROR: No Instagram page under " + completePageURL + " is not found.");
-                    }
+                        break;
                 }
             }
         }
 
         static void DisplayHelp(bool EmptyArgs = false)
         {
-            Console.WriteLine("Downloads an image from Instagram to the program's directory.\n");
-            Console.WriteLine("cat-a-gram [code] [name]\n");
-            Console.WriteLine("  [code]\tSpecifies the Instagram image by the browser address.");
-            Console.WriteLine("\t\t  Example code: BJdgjueAS64");
-            Console.WriteLine("  [name]\tSpecifies whether use the address or caption as the file's name.");
-            Console.WriteLine("\t\t  Valid names:");
-            Console.WriteLine("\t\t    a, address (default)");
-            Console.WriteLine("\t\t    c, caption");
-            Console.WriteLine("Example: cat-a-gram BJdgjueAS64 caption");
-
-            if (EmptyArgs)
-            {
-                Console.WriteLine("Press enter to close . . .");
-                Console.ReadLine();
-            }
+            Console.WriteLine("Downloads an Instagram media by a given URL code (eg. BJSzqWBhppW).\n");
+            Console.WriteLine("usage: CAT-A-GRAM [code] [name] [/H]\n");
+            Console.WriteLine("  [code]\tSpecifies the Instagram media to be downloaded by its URL code.\n");
+            Console.WriteLine("  [name]\tSpecifies the name of the file. If no parameter given, defaults to URL code.");
+            Console.WriteLine("\t\t  /A, /ADDRESS, /CODE	Saves the media as its Instagram URL code.");
+            Console.WriteLine("\t\t  /C, /CAPTION		Saves the media as its Instagram caption.");
+            Console.WriteLine("\t\tAnything else is interpreted as custom name (eg. \"image\").\n");
+            Console.WriteLine("  /H\t\tDisplays this help screen.\n");
+            Console.WriteLine("The program can identify jpg and mp4 files and saves them appropriately.\n");
+            Console.WriteLine("Error codes:\n");
+            Console.WriteLine("  MEDIA ERROR\tThe file name contains illegal characters, usually when it is present in captions.");
+            Console.WriteLine("  NETWORK ERROR\tThe program couldn't find an Instagram page, and the server sent back a 404 error.");
+            Console.WriteLine("  USER ERROR\tYou didn't give or mistyped a program parameter.");
         }
 
         //Thanks to Adam Sills from stackoverflow for this function.
-        static string DecodeEncodedNonAsciiCharacters(string value)
+        static string DecodeNonAscii(string value)
         {
+            // This funtion correctly shows emojis in filenames and supported fonts instead of s/00fe2 or something like that.
             return Regex.Replace(
                 value,
                 @"\\u(?<Value>[a-zA-Z0-9]{4})",
